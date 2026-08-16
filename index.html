@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>微信群聊</title>
+    <!-- 引入微信样式图标 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #ededed;
+            color: #111;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* 微信顶部导航栏 */
+        .wx-header {
+            background-color: #ededed;
+            height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 16px;
+            border-bottom: 1px solid #d8d8d8;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            z-index: 1000;
+        }
+
+        .wx-header .left, .wx-header .right {
+            font-size: 16px;
+            color: #000;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .wx-header .title {
+            font-size: 16px;
+            font-weight: 500;
+        }
+
+        /* 聊天主区域 */
+        .chat-container {
+            flex: 1;
+            margin-top: 44px;
+            margin-bottom: 55px;
+            padding: 15px 12px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        /* 消息行 */
+        .message-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            opacity: 0;
+            transform: translateY(10px);
+            animation: fadeIn 0.3s forwards;
+        }
+
+        @keyframes fadeIn {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* 优化头像尺寸：放大到 50px */
+        .avatar {
+            width: 70px;
+            height: 70px;
+            border-radius: 6px;
+            background-color: #ccc;
+            object-fit: cover;
+            flex-shrink: 0;
+        }
+
+        /* 消息内容容器 */
+        .message-content-group {
+            display: flex;
+            flex-direction: column;
+            max-width: 75%; /* 增加在手机端的宽度占比 */
+        }
+
+        .nickname {
+            font-size: 12px;
+            color: #888;
+            margin-bottom: 4px;
+            margin-left: 2px;
+        }
+
+        .message-body-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        /* ================= 语音气泡样式 ================= */
+        .voice-bubble {
+            background-color: #98e165;
+            color: #000;
+            padding: 10px 14px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+            position: relative;
+            /* 语音条基础宽度变长，最大可根据屏幕自适应 */
+            min-width: 80px; 
+            max-width: 100%;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+            transition: opacity 0.2s;
+        }
+
+        .voice-bubble:active {
+            opacity: 0.8;
+        }
+
+        .voice-bubble::after {
+            content: "";
+            position: absolute;
+            left: -6px;
+            top: 14px;
+            width: 0;
+            height: 0;
+            border-top: 6px solid transparent;
+            border-bottom: 6px solid transparent;
+            border-right: 6px solid #98e165;
+        }
+
+        .voice-icon {
+            width: 18px;
+            height: 18px;
+            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%23000000"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>');
+            background-repeat: no-repeat;
+            background-position: center;
+            background-size: contain;
+            margin-right: 8px;
+            flex-shrink: 0;
+        }
+
+        .voice-bubble.playing .voice-icon {
+            animation: waveAnim 1s infinite steps(3);
+        }
+
+        @keyframes waveAnim {
+            0% { opacity: 0.3; }
+            50% { opacity: 1; }
+            100% { opacity: 0.3; }
+        }
+
+        .voice-duration {
+            font-size: 15px;
+            color: #333;
+        }
+
+        /* ================= 纯文本气泡样式 ================= */
+        .text-bubble {
+            background-color: #fff;
+            color: #333;
+            padding: 10px 14px;
+            border-radius: 6px;
+            position: relative;
+            font-size: 16px;
+            line-height: 1.5;
+            
+            /* 内容太长时自动换行，并允许气泡内部上下滑动 */
+            word-wrap: break-word;
+            word-break: break-all;
+            white-space: pre-wrap; 
+            max-height: 60vh;
+            overflow-y: auto;
+            
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }
+
+        /* 文本气泡左侧的小三角 */
+        .text-bubble::after {
+            content: "";
+            position: absolute;
+            left: -6px;
+            top: 14px;
+            width: 0;
+            height: 0;
+            border-top: 6px solid transparent;
+            border-bottom: 6px solid transparent;
+            border-right: 6px solid #fff;
+        }
+
+        /* 转文字按钮 */
+        .to-text-btn {
+            font-size: 12px;
+            color: #576b95;
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 4px;
+            white-space: nowrap;
+        }
+
+        .to-text-btn:active {
+            opacity: 0.6;
+        }
+
+        /* 转出的文字区域 */
+        .transcribed-text {
+            margin-top: 6px;
+            font-size: 15px;
+            color: #333;
+            background-color: #f7f7f7;
+            padding: 10px 12px;
+            border-radius: 6px;
+            border: 1px solid #e5e5e5;
+            display: none;
+            
+            /* 同样适配内容过长的滑动限制 */
+            line-height: 1.5;
+            word-wrap: break-word;
+            word-break: break-all;
+            white-space: pre-wrap;
+            max-height: 50vh;
+            overflow-y: auto;
+        }
+
+        /* 打字机光标动画 */
+        .typing-cursor::after {
+            content: "|";
+            animation: blink 0.8s infinite;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+        }
+
+        /* 底部输入栏 */
+        .wx-footer {
+            background-color: #f7f7f7;
+            height: 55px;
+            border-top: 1px solid #d8d8d8;
+            display: flex;
+            align-items: center;
+            padding: 0 12px;
+            gap: 12px;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            z-index: 1000;
+        }
+
+        .wx-footer i {
+            font-size: 26px;
+            color: #5b5b5b;
+        }
+
+        .wx-footer .input-box {
+            flex: 1;
+            height: 38px;
+            background-color: #fff;
+            border-radius: 6px;
+            border: 1px solid #d8d8d8;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 微信顶部导航 -->
+    <div class="wx-header">
+        <div class="left">
+            <i class="fa-solid fa-angle-left"></i>
+            <span>微信 (5)</span>
+        </div>
+        <div class="title">就爱活在过去(3)</div>
+        <div class="right">
+            <i class="fa-solid fa-ellipsis"></i>
+        </div>
+    </div>
+
+    <!-- 聊天记录区域 -->
+    <div class="chat-container" id="chatContainer">
+        <!-- 动态生成的群聊消息会插入到这里 -->
+    </div>
+
+    <!-- 底部微信输入框伪装 -->
+    <div class="wx-footer">
+        <i class="fa-regular fa-face-smile"></i>
+        <div class="input-box"></div>
+        <i class="fa-regular fa-square-plus"></i>
+    </div>
+
+    <!-- 音频播放器载体 -->
+    <audio id="audioPlayer"></audio>
+
+    <script>
+        const chatData = [
+            {
+                type: "voice",
+                name: "亚历克斯",
+                avatar: "https://raw.githubusercontent.com/miancha/Sophyjubensha/refs/heads/main/Alex.jpg",
+                duration: "14''",
+                audioUrl: "https://raw.githubusercontent.com/miancha/Sophyjubensha/refs/heads/main/Alex.mp4",
+                text: "黄同志，你好，你吃了吗？我来找方萍学中文啦。我最近学到我完蛋。但是在我心中，方同志，你，永远是最完蛋的。"
+            },
+            {
+                type: "voice",
+                name: "桑吉",
+                avatar: "https://raw.githubusercontent.com/miancha/Sophyjubensha/refs/heads/main/sj.jpg",
+                duration: "9''",
+                audioUrl: "https://raw.githubusercontent.com/miancha/Sophyjubensha/refs/heads/main/sj.mp4",
+                text: "黄支书，这次去兰州向省里汇报工作就都靠你啦，别忘了给我们考古小队多要一点经费啊。"
+            }
+        ];
+
+        const chatContainer = document.getElementById('chatContainer');
+        const audioPlayer = document.getElementById('audioPlayer');
+        
+        let currentPlayingBubble = null;
+
+        // 逐条依次加载消息
+        function loadMessages() {
+            chatData.forEach((item, index) => {
+                setTimeout(() => {
+                    const row = document.createElement('div');
+                    row.className = 'message-row';
+                    
+                    let messageBodyHtml = '';
+
+                    if (item.type === 'voice') {
+                        // 提取出数字时长，例如 "13''" -> 13
+                        const durationSec = parseInt(item.duration) || 2;
+                        // 动态计算语音条长度：基础长度100 + 每秒增加的长度，最大不超过手机屏幕
+                        const dynamicWidth = Math.min(260, 100 + durationSec * 6);
+
+                        messageBodyHtml = `
+                            <div class="message-body-wrapper">
+                                <div class="voice-bubble" data-audio="${item.audioUrl}" style="width: ${dynamicWidth}px;">
+                                    <div class="voice-icon"></div>
+                                    <span class="voice-duration">${item.duration}</span>
+                                </div>
+                                <button class="to-text-btn">转文字</button>
+                            </div>
+                            <div class="transcribed-text" data-text="${item.text}"></div>
+                        `;
+                    } else if (item.type === 'text') {
+                        messageBodyHtml = `
+                            <div class="message-body-wrapper">
+                                <div class="text-bubble">${item.text}</div>
+                            </div>
+                        `;
+                    }
+                    
+                    row.innerHTML = `
+                        <img src="${item.avatar}" class="avatar" alt="avatar">
+                        <div class="message-content-group">
+                            <span class="nickname">${item.name}</span>
+                            ${messageBodyHtml}
+                        </div>
+                    `;
+
+                    chatContainer.appendChild(row);
+                    chatContainer.scrollTop = chatContainer.scrollHeight;
+
+                    // 绑定事件（只有语音消息才需要绑定播放和转文字事件）
+                    if (item.type === 'voice') {
+                        initMessageEvents(row);
+                    }
+
+                }, index * 1000); // 每隔 1 秒依次出现一条
+            });
+        }
+
+        // 为新生成的语音元素绑定点击事件
+        function initMessageEvents(row) {
+            const bubble = row.querySelector('.voice-bubble');
+            const toTextBtn = row.querySelector('.to-text-btn');
+            const transcribedBox = row.querySelector('.transcribed-text');
+            
+            if (!bubble || !toTextBtn || !transcribedBox) return;
+
+            const audioUrl = bubble.getAttribute('data-audio');
+
+            // 1. 点击语音气泡播放/暂停
+            bubble.addEventListener('click', () => {
+                if (currentPlayingBubble === bubble) {
+                    audioPlayer.pause();
+                    bubble.classList.remove('playing');
+                    currentPlayingBubble = null;
+                } else {
+                    if (currentPlayingBubble) {
+                        currentPlayingBubble.classList.remove('playing');
+                    }
+                    audioPlayer.src = audioUrl;
+                    audioPlayer.play().catch(e => console.log("自动播放限制，请手动点击", e));
+                    bubble.classList.add('playing');
+                    currentPlayingBubble = bubble;
+                }
+            });
+
+            audioPlayer.addEventListener('ended', () => {
+                if (currentPlayingBubble) {
+                    currentPlayingBubble.classList.remove('playing');
+                    currentPlayingBubble = null;
+                }
+            });
+
+            // 2. 点击转文字按钮
+            let isTyping = false;
+            toTextBtn.addEventListener('click', () => {
+                if (transcribedBox.style.display === 'block') {
+                    transcribedBox.style.display = 'none';
+                    transcribedBox.innerHTML = '';
+                    isTyping = false;
+                    return;
+                }
+
+                transcribedBox.style.display = 'block';
+                const fullText = transcribedBox.getAttribute('data-text');
+                transcribedBox.innerHTML = '';
+                transcribedBox.classList.add('typing-cursor');
+                
+                let charIndex = 0;
+                isTyping = true;
+
+                function typeWriter() {
+                    if (!isTyping) return;
+                    if (charIndex < fullText.length) {
+                        transcribedBox.innerHTML = fullText.substring(0, charIndex + 1);
+                        charIndex++;
+                        chatContainer.scrollTop = chatContainer.scrollHeight; 
+                        setTimeout(typeWriter, 60); 
+                    } else {
+                        transcribedBox.classList.remove('typing-cursor');
+                        isTyping = false;
+                    }
+                }
+
+                typeWriter();
+            });
+        }
+
+        // 页面加载完成后启动
+        window.onload = () => {
+            loadMessages();
+        };
+    </script>
+</body>
+</html>
